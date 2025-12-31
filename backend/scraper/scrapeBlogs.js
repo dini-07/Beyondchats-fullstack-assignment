@@ -1,55 +1,56 @@
-const axios = require("axios");
-const cheerio = require("cheerio");
-const Article = require("../models/Article");
+const mongoose = require("mongoose");
+const dotenv = require("dotenv");
+const path = require("path");
 
-const scrapeBeyondChatsBlogs = async () => {
+// Load environment variables from backend/.env
+dotenv.config({ path: path.join(__dirname, "../.env") });
+
+// Check if MONGO_URI is loaded
+const MONGO_URI = process.env.MONGO_URI;
+console.log("🚀 MONGO_URI:", MONGO_URI);
+
+if (!MONGO_URI) {
+  console.error("❌ MONGO_URI is missing in .env file");
+  process.exit(1);
+}
+
+// Connect to MongoDB
+mongoose
+  .connect(MONGO_URI)
+  .then(() => console.log("✅ MongoDB Connected Successfully"))
+  .catch((err) => {
+    console.error("❌ MongoDB Connection Error:", err);
+    process.exit(1);
+  });
+
+// Article Schema & Model
+const articleSchema = new mongoose.Schema(
+  {
+    title: String,
+    content: String,
+    source: String,
+  },
+  { timestamps: true }
+);
+const Article = mongoose.model("Article", articleSchema);
+
+// Force DB creation
+async function forceCreateDB() {
   try {
-    const baseUrl = "https://beyondchats.com/blogs/";
-    const { data } = await axios.get(baseUrl);
-    const $ = cheerio.load(data);
-
-    // Collect all blog links
-    let blogLinks = [];
-    $("a").each((_, el) => {
-      const link = $(el).attr("href");
-      if (link && link.includes("/blogs/") && link !== "/blogs/") {
-        blogLinks.push(link);
-      }
+    const article = await Article.create({
+      title: "Force DB Creation",
+      content: "This document forces MongoDB to create the database",
+      source: "manual-test",
     });
 
-    // Remove duplicates
-    blogLinks = [...new Set(blogLinks)];
+    console.log("✅ Test Article Inserted:", article._id);
 
-    // Take 5 oldest (last ones)
-    const oldestBlogs = blogLinks.slice(-5);
-
-    for (let link of oldestBlogs) {
-      const blogUrl = link.startsWith("http")
-        ? link
-        : `https://beyondchats.com${link}`;
-
-      const blogPage = await axios.get(blogUrl);
-      const $$ = cheerio.load(blogPage.data);
-
-      const title = $$("h1").first().text().trim();
-      const content = $$("article").text().trim();
-
-      if (!title || !content) continue;
-
-      const exists = await Article.findOne({ originalUrl: blogUrl });
-      if (exists) continue;
-
-      await Article.create({
-        title,
-        content,
-        originalUrl: blogUrl,
-      });
-
-      console.log(`Saved: ${title}`);
-    }
+    await mongoose.connection.close();
+    console.log("🔌 MongoDB Connection Closed");
   } catch (error) {
-    console.error("Scraping error:", error.message);
+    console.error("❌ Insert Error:", error);
   }
-};
+}
 
-module.exports = scrapeBeyondChatsBlogs;
+// Run
+forceCreateDB();
